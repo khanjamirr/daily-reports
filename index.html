@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Division Report - 1.1.0</title>
+<title>Division Report - 1.2.0</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap">
@@ -71,6 +71,11 @@ button:disabled{opacity:.45;cursor:default}
 .exb{flex:none;border:1px solid #f2d3d1;background:#fff6f5;color:var(--red);border-radius:6px;padding:1px 7px;font-size:10.5px;font-weight:600;opacity:0}
 .check:hover .exb,.exb:focus{opacity:1}@media(hover:none){.exb{opacity:1}}
 .check.ex{opacity:1}.check.ex>span{color:var(--red);text-decoration:line-through}.check.ex .exb{opacity:1;color:var(--accent);border-color:#cfe2ff;background:#f3f8ff}
+.tog{flex:none;border:0;background:#eef2f7;border-radius:6px;padding:1px 6px;font-size:10.5px;font-weight:600;color:var(--text-2)}.tog.open{background:var(--accent-bg);color:#0a52b3}
+.sub{margin:0 0 4px 22px;padding-left:8px;border-left:2px solid #e4ebf3}.sub .check{font-size:12px;padding:3px 2px}.sub small{color:var(--faint);font-size:10.5px;flex:none}
+.only{flex:none;border:1px solid #cfe2ff;background:#f3f8ff;color:#0a52b3;border-radius:6px;padding:1px 7px;font-size:10.5px;font-weight:600;opacity:0}.check:hover .only,.only:focus{opacity:1}@media(hover:none){.only{opacity:1}}
+.sub .check.dis{opacity:.5}
+.sub .only,.sub .exb{display:none;opacity:1}.sub .check:hover .only,.sub .check:hover .exb,.sub .check:focus-within .only,.sub .check:focus-within .exb{display:inline-block}@media(hover:none){.sub .only,.sub .exb{display:inline-block}}
 .exhead{margin:8px 0 2px;font-size:10.5px;font-weight:700;letter-spacing:.05em;text-transform:uppercase;color:var(--red)}
 .dim .cnt b{color:var(--red);font-weight:600}.check em{font-style:normal;font-size:10.5px;color:var(--accent);margin-left:4px}.check.off{opacity:.5}
 .saved{margin-top:8px;font-size:12px}.saved summary{cursor:pointer;color:var(--text-2);font-weight:600}
@@ -227,7 +232,7 @@ const pairKey=(c,l)=>JSON.stringify([c,l]);
 
 // ---------- saved settings (this browser) ----------
 const LS={ get(){ try{ return JSON.parse(localStorage.getItem(LS_KEY)||'null'); }catch(e){ return null; } }, set(v){ try{ localStorage.setItem(LS_KEY,JSON.stringify(v)); }catch(e){} } };
-function freshFilters(){ const t=today(); return {addedPairs:[],removedPairs:[],hiddenPairs:[],rowGroups:[],clients:[],locations:[],hiddenClients:[],hiddenLocations:[],clientGroups:[],locationGroups:[],search:'',scheduleDate:t,interviewDate:t,weekEnd:t}; }
+function freshFilters(){ const t=today(); return {addedPairs:[],removedPairs:[],hiddenPairs:[],rowGroups:[],clients:[],locations:[],hiddenClients:[],hiddenLocations:[],clientGroups:[],locationGroups:[],offPairs:[],search:'',scheduleDate:t,interviewDate:t,weekEnd:t}; }
 const freshFlags=()=>({recruiter:'',dateField:'dateAdded',from:'',to:'',sort:'recruiter'});
 let state={module:'ns',...freshFilters(),flags:freshFlags()};
 (()=>{ const s=LS.get(); if(s&&typeof s==='object') state={...state,...s,flags:{...freshFlags(),...(s.flags||{})}}; delete state.divisions; delete state.nsOff; if(!['ns','west','flags'].includes(state.module)) state.module='ns';
@@ -244,7 +249,7 @@ const allLocations=()=>[...new Set(scoped().map(r=>r.location))].sort();
 // ---------- report maths ----------
 function visibleRecords(rows,st){
   const clients=new Set(st.clients),locations=new Set(st.locations),hc=new Set(st.hiddenClients),hl=new Set(st.hiddenLocations),q=st.search.trim().toLowerCase();
-  const added=new Set(st.addedPairs),removed=new Set([...st.removedPairs,...st.hiddenPairs]);
+  const added=new Set(st.addedPairs),removed=new Set([...st.removedPairs,...st.hiddenPairs,...(st.offPairs||[])]);
   return rows.filter(r=>{ const k=pairKey(r.client,r.location); return !removed.has(k)&&(added.has(k)||(clients.has(r.client)&&locations.has(r.location)&&!hc.has(r.client)&&!hl.has(r.location)&&(!q||(r.client+' '+r.location).toLowerCase().includes(q)))); });
 }
 function groupMap(groups){ const m=new Map(); groups.forEach(g=>g.members.forEach(x=>m.set(x,g))); return m; }
@@ -329,7 +334,8 @@ async function openFile(f){
     if(!rows.length) throw new Error('No usable rows found in this file.');
     data=rows; file={name:f.name,sheet:sh.name,count:rows.length};
     // a new file starts with every client and location ticked
-    state.clients=[...new Set(data.map(r=>r.client))]; state.locations=[...new Set(data.map(r=>r.location))];
+    state.clients=[...new Set(data.map(r=>r.client))]; state.locations=[...new Set(data.map(r=>r.location))]; state.offPairs=[];
+    buildIndex();
     if(state.module!=='west'&&state.module!=='flags') state.module='ns';
     status('Loaded '+f.name+' · '+nf(rows.length)+' rows.');
     $('landingErr').textContent='';
@@ -373,39 +379,76 @@ function paintDims(){
     d.innerHTML=`<summary>${kind==='client'?'Clients':'Locations'}<span class="cnt"></span></summary><div class="dim-in"><input type="search" placeholder="Search ${kind}s" aria-label="Search ${kind}s"><div class="mini"><button type="button" data-all>Select all</button><button type="button" data-none>Clear</button></div><div class="checks"></div></div>`;
     box.append(d);
     d.querySelector('input').oninput=()=>paintFilter(kind);
-    d.querySelector('[data-all]').onclick=()=>{ state[kind+'s']=[...new Set([...state[kind+'s'],...(kind==='client'?allClients():allLocations())])]; paintFilter(kind); render(); };
-    d.querySelector('[data-none]').onclick=()=>{ const drop=new Set(kind==='client'?allClients():allLocations()); state[kind+'s']=state[kind+'s'].filter(v=>!drop.has(v)); d.querySelector('input').value=''; paintFilter(kind); render(); };
+    d.querySelector('[data-all]').onclick=()=>{ state[kind+'s']=[...new Set([...state[kind+'s'],...(kind==='client'?allClients():allLocations())])]; state.offPairs=[]; refresh(); };
+    d.querySelector('[data-none]').onclick=()=>{ const drop=new Set(kind==='client'?allClients():allLocations()); state[kind+'s']=state[kind+'s'].filter(v=>!drop.has(v)); d.querySelector('input').value=''; refresh(); };
     paintFilter(kind);
   });
+}
+// which clients are at each location, and the other way round (with row counts)
+let byLoc=new Map(), byClient=new Map(), pairN=new Map();
+function buildIndex(){ byLoc=new Map(); byClient=new Map(); pairN=new Map();
+  data.forEach(r=>{ const k=pairKey(r.client,r.location); pairN.set(k,(pairN.get(k)||0)+1);
+    if(!byLoc.has(r.location)) byLoc.set(r.location,new Set()); byLoc.get(r.location).add(r.client);
+    if(!byClient.has(r.client)) byClient.set(r.client,new Set()); byClient.get(r.client).add(r.location); }); }
+const openSub=new Set();
+function pairOn(c,l){ const k=pairKey(c,l); return state.clients.includes(c)&&state.locations.includes(l)&&!state.offPairs.includes(k)&&!state.hiddenPairs.includes(k)&&!state.hiddenClients.includes(c)&&!state.hiddenLocations.includes(l); }
+// turn one client-at-location combination on or off, without changing that client at other locations (or that location's other clients)
+function setPair(c,l,on){
+  const off=new Set(state.offPairs), k=pairKey(c,l);
+  if(!on){ off.add(k); state.offPairs=[...off]; return; }
+  off.delete(k);
+  if(!state.locations.includes(l)){ state.locations=[...state.locations,l]; (byLoc.get(l)||[]).forEach(c2=>{ if(c2!==c) off.add(pairKey(c2,l)); }); }
+  if(!state.clients.includes(c)){ state.clients=[...state.clients,c]; (byClient.get(c)||[]).forEach(l2=>{ if(l2!==l) off.add(pairKey(c,l2)); }); }
+  state.offPairs=[...off];
 }
 function paintFilter(kind){
   const box=$(kind+'Filter'); if(!box) return;
   const values=kind==='client'?allClients():allLocations(), key=kind+'s', hkey=kind==='client'?'hiddenClients':'hiddenLocations', chosen=new Set(state[key]), hidden=new Set(state[hkey]), present=new Set(values);
+  const oHidden=new Set(kind==='client'?state.hiddenLocations:state.hiddenClients), hp=new Set(state.hiddenPairs);
   const groups=state[kind+'Groups'].filter(g=>g.members.some(m=>present.has(m)));
+  const subsOf=v=>[...((kind==='client'?byClient:byLoc).get(v)||[])].filter(o=>!oHidden.has(o)&&!hp.has(kind==='client'?pairKey(v,o):pairKey(o,v))).sort();
+  const cl=(v,o)=>kind==='client'?[v,o]:[o,v];   // → [client, location]
   const exN=values.filter(v=>hidden.has(v)).length;
-  box.querySelector('.cnt').innerHTML=values.filter(v=>chosen.has(v)&&!hidden.has(v)).length+' / '+(values.length-exN)+(exN?` · <b>${exN} excluded</b>`:'');
+  box.querySelector('.cnt').innerHTML=values.filter(v=>!hidden.has(v)&&subsOf(v).some(o=>pairOn(...cl(v,o)))).length+' / '+(values.length-exN)+(exN?` · <b>${exN} excluded</b>`:'');
   const term=box.querySelector('input').value.toLowerCase(), list=box.querySelector('.checks'); list.innerHTML='';
   const exclude=(members,on)=>{ const h=new Set(state[hkey]); members.forEach(m=>on?h.add(m):h.delete(m)); state[hkey]=[...h];
     if(!on){ const c=new Set(state[key]); members.forEach(m=>c.add(m)); state[key]=[...c]; }
     refresh(); status(on?members.length+' '+kind+(members.length===1?'':'s')+' excluded — stays excluded for every file until you bring it back.':'Back in the report.'); };
-  const item=(name,members,isGroup)=>{
-    const avail=members.filter(m=>!hidden.has(m)&&present.has(m)), on=avail.filter(m=>chosen.has(m)).length;
-    if(!avail.length) return;
+  const btn=(cls,text,title,fn)=>{ const b=document.createElement('button'); b.type='button'; b.className=cls; b.textContent=text; b.title=title; b.onclick=e=>{ e.preventDefault(); e.stopPropagation(); fn(); }; return b; };
+  const groupItem=(name,members)=>{
+    const avail=members.filter(m=>!hidden.has(m)&&present.has(m)), on=avail.filter(m=>chosen.has(m)).length; if(!avail.length) return;
     const lab=document.createElement('label'); lab.className='check';
     const cb=document.createElement('input'); cb.type='checkbox'; cb.checked=on===avail.length; cb.indeterminate=on>0&&on<avail.length;
-    const sp=document.createElement('span'); sp.textContent=name; if(isGroup){ const g=document.createElement('em'); g.textContent='group'; sp.append(g); }
-    const ex=document.createElement('button'); ex.type='button'; ex.className='exb'; ex.textContent='Exclude'; ex.title='Exclude '+name+' from the report';
-    ex.onclick=e=>{ e.preventDefault(); e.stopPropagation(); exclude(avail,true); };
-    lab.append(cb,sp,ex); list.append(lab);
-    cb.onchange=()=>{ const next=new Set(state[key]); avail.forEach(v=>cb.checked?next.add(v):next.delete(v)); state[key]=[...next]; paintFilter(kind); render(); };
+    const sp=document.createElement('span'); sp.textContent=name; const g=document.createElement('em'); g.textContent='group'; sp.append(g);
+    lab.append(cb,sp,btn('exb','Exclude','Exclude '+name,()=>exclude(avail,true))); list.append(lab);
+    cb.onchange=()=>{ const next=new Set(state[key]); avail.forEach(v=>cb.checked?next.add(v):next.delete(v)); state[key]=[...next]; refresh(); };
   };
-  groups.filter(g=>(g.name+' '+g.members.join(' ')).toLowerCase().includes(term)).forEach(g=>item(g.name,g.members,true));
-  values.filter(v=>!hidden.has(v)&&v.toLowerCase().includes(term)).forEach(v=>item(v,[v],false));
+  const valueItem=v=>{
+    const subs=subsOf(v), on=subs.filter(o=>pairOn(...cl(v,o))).length, sk=kind+'|'+v, open=openSub.has(sk);
+    const lab=document.createElement('label'); lab.className='check';
+    const cb=document.createElement('input'); cb.type='checkbox'; cb.checked=!!subs.length&&on===subs.length; cb.indeterminate=on>0&&on<subs.length;
+    const sp=document.createElement('span'); sp.textContent=v;
+    const other=kind==='client'?'location':'client';
+    const tog=btn('tog'+(open?' open':''),(open?'▾ ':'▸ ')+subs.length,'Pick which '+other+'s to show for '+v,()=>{ open?openSub.delete(sk):openSub.add(sk); paintFilter(kind); });
+    lab.append(cb,sp,tog,btn('exb','Exclude','Exclude '+v+' everywhere',()=>exclude([v],true))); list.append(lab);
+    cb.onchange=()=>{ if(cb.checked){ subs.forEach(o=>setPair(...cl(v,o),true)); } else state[key]=state[key].filter(x=>x!==v); refresh(); };
+    if(open&&subs.length){ const box2=document.createElement('div'); box2.className='sub';
+      subs.forEach(o=>{ const [c,l]=cl(v,o), l2=document.createElement('label'); l2.className='check';
+        const c2=document.createElement('input'); c2.type='checkbox'; c2.checked=pairOn(c,l);
+        const s2=document.createElement('span'); s2.textContent=o; const n2=document.createElement('small'); n2.textContent=nf(pairN.get(pairKey(c,l))||0);
+        l2.append(c2,s2,n2,
+          btn('only','Only','Show only '+o+' for '+v,()=>{ subs.forEach(x=>setPair(...cl(v,x),x===o)); refresh(); }),
+          btn('exb','Exclude',`Exclude ${c} at ${l} (stays excluded for every file)`,()=>{ state.hiddenPairs=[...new Set([...state.hiddenPairs,pairKey(c,l)])]; refresh(); status(c+' at '+l+' excluded — find it under Excluded to bring it back.'); }));
+        box2.append(l2);
+        c2.onchange=()=>{ setPair(c,l,c2.checked); refresh(); }; });
+      list.append(box2); }
+  };
+  groups.filter(g=>(g.name+' '+g.members.join(' ')).toLowerCase().includes(term)).forEach(g=>groupItem(g.name,g.members));
+  values.filter(v=>!hidden.has(v)&&v.toLowerCase().includes(term)).forEach(valueItem);
   const exList=values.filter(v=>hidden.has(v)&&v.toLowerCase().includes(term));
   if(exList.length){ const h=document.createElement('div'); h.className='exhead'; h.textContent='Excluded'; list.append(h);
     exList.forEach(v=>{ const lab=document.createElement('div'); lab.className='check ex'; const sp=document.createElement('span'); sp.textContent=v;
-      const b=document.createElement('button'); b.type='button'; b.className='exb'; b.textContent='Include'; b.title='Bring '+v+' back'; b.onclick=()=>exclude([v],false);
-      lab.append(sp,b); list.append(lab); }); }
+      lab.append(sp,btn('exb','Include','Bring '+v+' back',()=>exclude([v],false))); list.append(lab); }); }
   if(!list.children.length) list.innerHTML='<p class="hint">Nothing here.</p>';
 }
 function savedItem(list,text,btnText,label,onclick,sub){
