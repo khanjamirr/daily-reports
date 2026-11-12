@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Division Report - 1.0.1</title>
+<title>Division Report - 1.1.0</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap">
@@ -67,7 +67,12 @@ button:disabled{opacity:.45;cursor:default}
 .mini .hint{margin-left:auto}
 .checks{max-height:220px;overflow:auto}
 .check{display:flex;gap:8px;align-items:flex-start;padding:5px 2px;font-size:12.5px;cursor:pointer;border-radius:6px}.check:hover{background:#f3f6fa}
-.check input{margin-top:2px;accent-color:var(--accent)}.check em{font-style:normal;font-size:10.5px;color:var(--accent);margin-left:4px}.check.off{opacity:.5}
+.check input{margin-top:2px;accent-color:var(--accent)}.check>span{flex:1;min-width:0}
+.exb{flex:none;border:1px solid #f2d3d1;background:#fff6f5;color:var(--red);border-radius:6px;padding:1px 7px;font-size:10.5px;font-weight:600;opacity:0}
+.check:hover .exb,.exb:focus{opacity:1}@media(hover:none){.exb{opacity:1}}
+.check.ex{opacity:1}.check.ex>span{color:var(--red);text-decoration:line-through}.check.ex .exb{opacity:1;color:var(--accent);border-color:#cfe2ff;background:#f3f8ff}
+.exhead{margin:8px 0 2px;font-size:10.5px;font-weight:700;letter-spacing:.05em;text-transform:uppercase;color:var(--red)}
+.dim .cnt b{color:var(--red);font-weight:600}.check em{font-style:normal;font-size:10.5px;color:var(--accent);margin-left:4px}.check.off{opacity:.5}
 .saved{margin-top:8px;font-size:12px}.saved summary{cursor:pointer;color:var(--text-2);font-weight:600}
 .saved-item{display:flex;align-items:center;gap:8px;padding:6px 0;border-bottom:1px solid #f0f2f6}
 .saved-item span{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.saved-item small{display:block;color:var(--faint);font-size:10.5px}
@@ -149,10 +154,10 @@ table.t tfoot td{position:sticky;bottom:0;background:#eef3fa;font-weight:700;bor
         <section class="sec" id="secFilters"><h4>Filters</h4>
           <input type="search" id="search" class="search" placeholder="Search client or location" aria-label="Search report">
           <div id="dims"></div>
-          <div class="row"><button type="button" class="btn" id="mergeBtn">Merge…</button><button type="button" class="btn" id="hideBtn">Hide…</button><button type="button" class="btn" id="addBtn">Add rows…</button></div>
+          <div class="row"><button type="button" class="btn" id="mergeBtn">Merge…</button><button type="button" class="btn" id="hideBtn">Exclude…</button><button type="button" class="btn" id="addBtn">Add rows…</button></div>
           <details class="saved"><summary id="groupsSum">Groups · 0</summary><div id="groupsList"></div></details>
           <details class="saved"><summary id="addedSum">Added rows · 0</summary><div id="addedList"></div></details>
-          <details class="saved"><summary id="hiddenSum">Hidden · 0</summary><div id="hiddenList"></div></details>
+          <details class="saved"><summary id="hiddenSum">Excluded · 0</summary><div id="hiddenList"></div></details>
           <div style="margin-top:10px"><button type="button" class="link" id="resetBtn">Reset my filters and groups</button></div>
         </section>
         <section class="sec" id="secFlags"><h4>Red flags</h4>
@@ -167,7 +172,7 @@ table.t tfoot td{position:sticky;bottom:0;background:#eef3fa;font-weight:700;bor
       <div class="main">
         <div class="tools" id="tools">
           <button type="button" class="btn" id="selAll">Select all</button><button type="button" class="btn" id="selNone" disabled>Clear</button>
-          <button type="button" class="btn primary" id="mergeRows" disabled>Merge selected rows</button><button type="button" class="btn" id="hideSel" disabled>Hide selected</button><button type="button" class="btn" id="rmSel" disabled>Remove selected</button>
+          <button type="button" class="btn primary" id="mergeRows" disabled>Merge selected rows</button><button type="button" class="btn" id="hideSel" disabled>Exclude selected</button><button type="button" class="btn" id="rmSel" disabled>Remove selected</button>
           <span class="hint" id="selCount"></span><span class="grow"></span>
           <button type="button" class="btn" id="copyBtn">Copy</button><button type="button" class="btn" id="xlsxBtn">Download Excel</button>
         </div>
@@ -375,20 +380,32 @@ function paintDims(){
 }
 function paintFilter(kind){
   const box=$(kind+'Filter'); if(!box) return;
-  const values=kind==='client'?allClients():allLocations(), key=kind+'s', chosen=new Set(state[key]), hidden=new Set(state[kind==='client'?'hiddenClients':'hiddenLocations']), present=new Set(values);
+  const values=kind==='client'?allClients():allLocations(), key=kind+'s', hkey=kind==='client'?'hiddenClients':'hiddenLocations', chosen=new Set(state[key]), hidden=new Set(state[hkey]), present=new Set(values);
   const groups=state[kind+'Groups'].filter(g=>g.members.some(m=>present.has(m)));
-  box.querySelector('.cnt').textContent=values.filter(v=>chosen.has(v)&&!hidden.has(v)).length+' / '+values.length;
+  const exN=values.filter(v=>hidden.has(v)).length;
+  box.querySelector('.cnt').innerHTML=values.filter(v=>chosen.has(v)&&!hidden.has(v)).length+' / '+(values.length-exN)+(exN?` · <b>${exN} excluded</b>`:'');
   const term=box.querySelector('input').value.toLowerCase(), list=box.querySelector('.checks'); list.innerHTML='';
+  const exclude=(members,on)=>{ const h=new Set(state[hkey]); members.forEach(m=>on?h.add(m):h.delete(m)); state[hkey]=[...h];
+    if(!on){ const c=new Set(state[key]); members.forEach(m=>c.add(m)); state[key]=[...c]; }
+    refresh(); status(on?members.length+' '+kind+(members.length===1?'':'s')+' excluded — stays excluded for every file until you bring it back.':'Back in the report.'); };
   const item=(name,members,isGroup)=>{
     const avail=members.filter(m=>!hidden.has(m)&&present.has(m)), on=avail.filter(m=>chosen.has(m)).length;
-    const lab=document.createElement('label'); lab.className='check'+(!avail.length?' off':'');
-    const cb=document.createElement('input'); cb.type='checkbox'; cb.checked=!!avail.length&&on===avail.length; cb.indeterminate=on>0&&on<avail.length; cb.disabled=!avail.length;
+    if(!avail.length) return;
+    const lab=document.createElement('label'); lab.className='check';
+    const cb=document.createElement('input'); cb.type='checkbox'; cb.checked=on===avail.length; cb.indeterminate=on>0&&on<avail.length;
     const sp=document.createElement('span'); sp.textContent=name; if(isGroup){ const g=document.createElement('em'); g.textContent='group'; sp.append(g); }
-    lab.append(cb,sp); list.append(lab);
+    const ex=document.createElement('button'); ex.type='button'; ex.className='exb'; ex.textContent='Exclude'; ex.title='Exclude '+name+' from the report';
+    ex.onclick=e=>{ e.preventDefault(); e.stopPropagation(); exclude(avail,true); };
+    lab.append(cb,sp,ex); list.append(lab);
     cb.onchange=()=>{ const next=new Set(state[key]); avail.forEach(v=>cb.checked?next.add(v):next.delete(v)); state[key]=[...next]; paintFilter(kind); render(); };
   };
   groups.filter(g=>(g.name+' '+g.members.join(' ')).toLowerCase().includes(term)).forEach(g=>item(g.name,g.members,true));
-  values.filter(v=>v.toLowerCase().includes(term)).forEach(v=>item(v,[v],false));
+  values.filter(v=>!hidden.has(v)&&v.toLowerCase().includes(term)).forEach(v=>item(v,[v],false));
+  const exList=values.filter(v=>hidden.has(v)&&v.toLowerCase().includes(term));
+  if(exList.length){ const h=document.createElement('div'); h.className='exhead'; h.textContent='Excluded'; list.append(h);
+    exList.forEach(v=>{ const lab=document.createElement('div'); lab.className='check ex'; const sp=document.createElement('span'); sp.textContent=v;
+      const b=document.createElement('button'); b.type='button'; b.className='exb'; b.textContent='Include'; b.title='Bring '+v+' back'; b.onclick=()=>exclude([v],false);
+      lab.append(sp,b); list.append(lab); }); }
   if(!list.children.length) list.innerHTML='<p class="hint">Nothing here.</p>';
 }
 function savedItem(list,text,btnText,label,onclick,sub){
@@ -404,10 +421,10 @@ function paintSaved(){
   state.rowGroups.forEach(g=>savedItem(gl,g.clientLabel+' · '+g.locationLabel,'×','Ungroup rows',()=>{ state.rowGroups=state.rowGroups.filter(x=>x.id!==g.id); refresh(); },g.pairs.length+' rows'));
   if(total){ const b=document.createElement('button'); b.type='button'; b.className='link'; b.textContent='Ungroup all'; b.style.marginTop='6px'; b.onclick=()=>{ state.clientGroups=[]; state.locationGroups=[]; state.rowGroups=[]; refresh(); }; gl.append(b); }
   const hl=$('hiddenList'); hl.innerHTML=''; let count=0;
-  ['client','location'].forEach(kind=>{ const key=kind==='client'?'hiddenClients':'hiddenLocations'; state[key].forEach(v=>{ count++; savedItem(hl,v,'↶','Show '+v,()=>{ state[key]=state[key].filter(x=>x!==v); if(!state[kind+'s'].includes(v)) state[kind+'s'].push(v); refresh(); }); }); });
-  state.hiddenPairs.forEach(k=>{ count++; savedItem(hl,JSON.parse(k).join(' · '),'↶','Show row',()=>{ state.hiddenPairs=state.hiddenPairs.filter(p=>p!==k); lockPairs([k]); }); });
-  $('hiddenSum').textContent='Hidden · '+count;
-  if(count){ const b=document.createElement('button'); b.type='button'; b.className='link'; b.textContent='Show everything hidden'; b.style.marginTop='6px'; b.onclick=()=>{ state.clients=[...new Set([...state.clients,...state.hiddenClients])]; state.locations=[...new Set([...state.locations,...state.hiddenLocations])]; state.hiddenClients=[]; state.hiddenLocations=[]; state.addedPairs=[...new Set([...state.addedPairs,...state.hiddenPairs])]; state.hiddenPairs=[]; refresh(); }; hl.append(b); }
+  ['client','location'].forEach(kind=>{ const key=kind==='client'?'hiddenClients':'hiddenLocations'; state[key].forEach(v=>{ count++; savedItem(hl,v,'↶','Include '+v,()=>{ state[key]=state[key].filter(x=>x!==v); if(!state[kind+'s'].includes(v)) state[kind+'s'].push(v); refresh(); }); }); });
+  state.hiddenPairs.forEach(k=>{ count++; savedItem(hl,JSON.parse(k).join(' · '),'↶','Include row',()=>{ state.hiddenPairs=state.hiddenPairs.filter(p=>p!==k); lockPairs([k]); }); });
+  $('hiddenSum').textContent='Excluded · '+count;
+  if(count){ const b=document.createElement('button'); b.type='button'; b.className='link'; b.textContent='Include everything again'; b.style.marginTop='6px'; b.onclick=()=>{ state.clients=[...new Set([...state.clients,...state.hiddenClients])]; state.locations=[...new Set([...state.locations,...state.hiddenLocations])]; state.hiddenClients=[]; state.hiddenLocations=[]; state.addedPairs=[...new Set([...state.addedPairs,...state.hiddenPairs])]; state.hiddenPairs=[]; refresh(); }; hl.append(b); }
 }
 function refresh(){ paintFilter('client'); paintFilter('location'); paintSaved(); render(); }
 
@@ -423,7 +440,8 @@ function render(){
 
   const records=visibleRecords(scoped(),state); report=groupedReport(records,state); flags=flagMode?redFlags(data,state.flags):[];
   $('title').textContent=mod==='west'?'West · weekly report':'North / SE / SC';
-  $('sub').textContent=nf(records.length)+' records · '+report.rows.length+' rows'+(mod==='west'?' · week ending '+fmtDate(state.weekEnd):' · schedules '+fmtDate(state.scheduleDate)+' · interviews '+fmtDate(state.interviewDate));
+  const exc=state.hiddenClients.filter(c=>data.some(r=>r.client===c)).length, exl=state.hiddenLocations.filter(l=>data.some(r=>r.location===l)).length;
+  $('sub').textContent=nf(records.length)+' records · '+report.rows.length+' rows'+(exc?' · '+exc+' client'+(exc===1?'':'s')+' excluded':'')+(exl?' · '+exl+' location'+(exl===1?'':'s')+' excluded':'')+(mod==='west'?' · week ending '+fmtDate(state.weekEnd):' · schedules '+fmtDate(state.scheduleDate)+' · interviews '+fmtDate(state.interviewDate));
 
   if(flagMode){
     const ft=$('flagTable'), f=state.flags;
@@ -435,10 +453,10 @@ function render(){
     const H=headers(), t=$('table');
     t.querySelector('thead').innerHTML='<tr><th class="act"><input type="checkbox" id="selHead" title="Select all rows" aria-label="Select all rows"></th>'+H.map((h,i)=>`<th scope="col" class="${i>1?'num':''}">${esc(h)}</th>`).join('')+'</tr>';
     const empty=(!state.clients.length||!state.locations.length)?'Pick at least one client and one location on the left (or use <b>Select all</b>).':'Nothing matches these filters.';
-    t.querySelector('tbody').innerHTML=report.rows.length?report.rows.map((r,i)=>`<tr><td class="act"><input type="checkbox" data-sel="${i}" aria-label="Select row ${i+1}"><button type="button" class="x" data-rm="${i}" title="Remove row" aria-label="Remove row">×</button><button type="button" class="hide-btn" data-hide="${i}" title="Hide row">Hide</button></td><td>${esc(r.client)}</td><td>${esc(r.location)}${r.pairs.size>1?'<span class="badge">merged</span>':''}${[...r.pairs].some(p=>state.addedPairs.includes(p))?'<span class="badge">added</span>':''}</td>${r.counts.map(n=>`<td class="num">${nf(n)}</td>`).join('')}</tr>`).join(''):`<tr><td class="empty" colspan="${H.length+1}">${empty}</td></tr>`;
+    t.querySelector('tbody').innerHTML=report.rows.length?report.rows.map((r,i)=>`<tr><td class="act"><input type="checkbox" data-sel="${i}" aria-label="Select row ${i+1}"><button type="button" class="x" data-rm="${i}" title="Remove row" aria-label="Remove row">×</button><button type="button" class="hide-btn" data-hide="${i}" title="Exclude this row">Exclude</button></td><td>${esc(r.client)}</td><td>${esc(r.location)}${r.pairs.size>1?'<span class="badge">merged</span>':''}${[...r.pairs].some(p=>state.addedPairs.includes(p))?'<span class="badge">added</span>':''}</td>${r.counts.map(n=>`<td class="num">${nf(n)}</td>`).join('')}</tr>`).join(''):`<tr><td class="empty" colspan="${H.length+1}">${empty}</td></tr>`;
     t.querySelector('tfoot').innerHTML=report.rows.length?`<tr><td></td><td>Total</td><td></td>${report.totals.map(n=>`<td class="num">${nf(n)}</td>`).join('')}</tr>`:'';
     t.querySelectorAll('[data-rm]').forEach(b=>b.onclick=()=>removePairs([...report.rows[+b.dataset.rm].pairs]));
-    t.querySelectorAll('[data-hide]').forEach(b=>b.onclick=()=>{ state.hiddenPairs=[...new Set([...state.hiddenPairs,...report.rows[+b.dataset.hide].pairs])]; refresh(); status('Row hidden — find it under Hidden to bring it back.'); });
+    t.querySelectorAll('[data-hide]').forEach(b=>b.onclick=()=>{ state.hiddenPairs=[...new Set([...state.hiddenPairs,...report.rows[+b.dataset.hide].pairs])]; refresh(); status('Row excluded — find it under Excluded to bring it back.'); });
     const selSync=()=>{ const all=t.querySelectorAll('[data-sel]'), n=t.querySelectorAll('[data-sel]:checked').length;
       $('mergeRows').disabled=n<2; $('hideSel').disabled=!n; $('rmSel').disabled=!n; $('selNone').disabled=!n; $('selAll').disabled=!all.length||n===all.length;
       $('selCount').textContent=n?n+' of '+all.length+' selected':''; const h=$('selHead'); h.checked=!!all.length&&n===all.length; h.indeterminate=n>0&&n<all.length; h.disabled=!all.length; };
@@ -462,12 +480,12 @@ function lockPairs(keys){ state.addedPairs=[...new Set([...state.addedPairs,...k
 // ---------- merge / hide / add dialogs ----------
 function editDimension(action){
   let kind='location', picked=new Set();
-  const d=dialog(`<div class="modal-h"><h3>${action==='merge'?'Merge clients or locations':'Hide clients or locations'}</h3><button data-close aria-label="Close">×</button></div><div class="modal-b">
+  const d=dialog(`<div class="modal-h"><h3>${action==='merge'?'Merge clients or locations':'Exclude clients or locations'}</h3><button data-close aria-label="Close">×</button></div><div class="modal-b">
     <div class="seg"><label><input type="radio" name="dim" value="location" checked> Locations</label><label><input type="radio" name="dim" value="client"> Clients</label></div>
     <input type="search" class="search q" placeholder="Search" aria-label="Search"><div class="mini"><button type="button" class="all">Select all</button><button type="button" class="none">Clear</button></div>
     <div class="checks list"></div>${action==='merge'?'<label class="field">Group name<input class="gname" placeholder="Optional — e.g. Louisville area"></label>':''}
     <div class="preview" aria-live="polite"></div>
-    <div class="foot"><button type="button" class="btn" data-close>Cancel</button><button type="button" class="btn primary apply" disabled>${action==='merge'?'Merge':'Hide'}</button></div></div>`);
+    <div class="foot"><button type="button" class="btn" data-close>Cancel</button><button type="button" class="btn primary apply" disabled>${action==='merge'?'Merge':'Exclude'}</button></div></div>`);
   const q=s=>d.querySelector(s);
   const preview=()=>{ q('.apply').disabled=picked.size<(action==='merge'?2:1);
     if(action==='hide'){ q('.preview').textContent=picked.size?picked.size+' '+kind+(picked.size===1?'':'s')+' selected':''; return; }
@@ -482,7 +500,7 @@ function editDimension(action){
   q('.all').onclick=()=>{ picked=new Set(contextualValues(kind)); paint(); }; q('.none').onclick=()=>{ picked.clear(); paint(); };
   q('.apply').onclick=()=>{ if(action==='merge') state[kind+'Groups']=replaceDimensionGroup(state[kind+'Groups'],[...picked],q('.gname').value,'g'+Date.now()+Math.random().toString(36).slice(2,7));
     else { const key=kind==='client'?'hiddenClients':'hiddenLocations'; state[key]=[...new Set([...state[key],...picked])]; }
-    refresh(); status(action==='merge'?'Group saved.':'Hidden — find it under Hidden to bring it back.'); d.close(); };
+    refresh(); status(action==='merge'?'Group saved.':'Excluded — find it under Excluded to bring it back.'); d.close(); };
   paint(); q('.q').focus();
 }
 function addRows(){
@@ -523,7 +541,7 @@ for(const [id,key] of [['fRecruiter','recruiter'],['fDateField','dateField'],['f
 $('resetFlags').onclick=()=>{ state.flags=freshFlags(); syncControls(); render(); };
 $('resetBtn').onclick=()=>{ if(!confirm('Reset your filters, groups, added and hidden rows?')) return; Object.assign(state,freshFilters()); state.clients=[...new Set(data.map(r=>r.client))]; state.locations=[...new Set(data.map(r=>r.location))]; syncControls(); refresh(); status('Your filters and groups were reset.'); };
 $('mergeBtn').onclick=()=>editDimension('merge'); $('hideBtn').onclick=()=>editDimension('hide'); $('addBtn').onclick=addRows; $('mergeRows').onclick=mergeRows;
-$('hideSel').onclick=()=>{ const k=selPairs(); if(!k.length) return; state.hiddenPairs=[...new Set([...state.hiddenPairs,...k])]; refresh(); status(k.length+' row(s) hidden — find them under Hidden to bring them back.'); };
+$('hideSel').onclick=()=>{ const k=selPairs(); if(!k.length) return; state.hiddenPairs=[...new Set([...state.hiddenPairs,...k])]; refresh(); status(k.length+' row(s) excluded — find them under Excluded to bring them back.'); };
 $('rmSel').onclick=()=>{ const k=selPairs(); if(!k.length) return; if(!confirm('Remove the selected rows from this report?')) return; removePairs(k); };
 $('copyBtn').onclick=async()=>{ const text=toTSV(state.module==='flags'?flagMatrix():reportMatrix()); try{ await navigator.clipboard.writeText(text); toast('Copied — paste into Excel or an email.'); }catch(e){ toast('Your browser blocked copying.'); } };
 $('xlsxBtn').onclick=()=>{ if(typeof XLSX==='undefined') return toast('The Excel writer didn’t load — check your connection.');
